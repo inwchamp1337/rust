@@ -277,8 +277,11 @@ impl VectorIndex {
 
         info!("Saving index to {:?}", path);
 
-        // Create temp directory for SPFresh to save folder structure
-        let temp_dir = path.with_extension("tmp");
+        // Create temp directory in /tmp (outside of data/)
+        let temp_dir = std::env::temp_dir().join(format!(
+            "spfresh_save_{}",
+            std::process::id()
+        ));
         if temp_dir.exists() {
             std::fs::remove_dir_all(&temp_dir)?;
         }
@@ -321,8 +324,11 @@ impl VectorIndex {
 
         info!("Loading index from {:?}", path);
 
-        // Create temp directory for extraction
-        let temp_dir = path.with_extension("tmp");
+        // Create temp directory in /tmp (outside of data/)
+        let temp_dir = std::env::temp_dir().join(format!(
+            "spfresh_load_{}",
+            std::process::id()
+        ));
         if temp_dir.exists() {
             std::fs::remove_dir_all(&temp_dir)?;
         }

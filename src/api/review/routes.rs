@@ -4,5 +4,5 @@ use axum::{routing::post, Router};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/reviews/add", post(add_review_handler))
+        .route("/reviews", post(add_review_handler))
 }

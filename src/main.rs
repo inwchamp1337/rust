@@ -60,12 +60,14 @@ async fn main() -> anyhow::Result<()> {
         config.index.vector_dim,
         config.index.num_trees,
     );
-    vector_index.initialize()?;
     
-    // Try to load existing index
+    // Load existing index or initialize new one
     if config.storage.index_path.exists() {
         info!("📂 Loading existing index from {:?}", config.storage.index_path);
         vector_index.load(&config.storage.index_path)?;
+    } else {
+        info!("🆕 Creating new index");
+        vector_index.initialize()?;
     }
     
     let vector_index = Arc::new(RwLock::new(vector_index));

@@ -8,11 +8,14 @@ use crate::config::AppConfig;
 use crate::embedding::EmbeddingService;
 use crate::storage::{JsonlStorage, VectorIndex};
 use axum::{
+    http::Method,
     routing::get,
     Router,
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tower_http::cors::Any;
+use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -82,12 +85,18 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Build router with modular routes
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers(Any);
+
     let app = Router::new()
         .route("/health", get(health_handler))
         .merge(api::review::routes())
         .merge(api::search::routes())
         .with_state(state)
-        .layer(TraceLayer::new_for_http());
+        .layer(TraceLayer::new_for_http())
+        .layer(cors);
 
     // Start server
     let port = std::env::var("PORT").unwrap_or_else(|_| "8000".to_string());
@@ -98,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
     info!("");
     info!("📡 Available endpoints:");
     info!("   GET  /health           - Health check");
-    info!("   POST /reviews/add      - Add new review");
+    info!("   POST /reviews      - Add new review");
     info!("   POST /reviews/search   - Search reviews");
     info!("");
     info!("✨ Server is ready to accept requests!");

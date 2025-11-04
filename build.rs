@@ -3,17 +3,49 @@ fn main() {
     println!("cargo:rerun-if-changed=SPFresh/");
 
     let sptag_path = std::path::Path::new("SPFresh/SPFresh");
-    let release_path = sptag_path.join("Release");
     
-    // Link pre-built SPFresh libraries (use shared library to avoid SPDK dependencies)
-    println!("cargo:rustc-link-search=native={}", release_path.display());
-    println!("cargo:rustc-link-lib=dylib=SPTAGLib");     // Use shared library instead of static
-    println!("cargo:rustc-link-lib=static=DistanceUtils");
+    // Forcing path to 'Release' as confirmed by user.
+    let lib_path = sptag_path.join("Release");
     
-    // Link system libraries
+    // Debug: print what files exist in the lib directory
+    println!("cargo:warning=Looking for SPFresh libs in: {}", lib_path.display());
+    if lib_path.exists() {
+        if let Ok(entries) = std::fs::read_dir(&lib_path) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.contains("SPTAG") || name.contains("Distance") || name.ends_with(".so") || name.ends_with(".a") {
+                        println!("cargo:warning=Found lib file: {}", name);
+                    }
+                }
+            }
+        }
+    } else {
+        println!("cargo:warning=Library path confirmed by user does not exist: {}", lib_path.display());
+    }
+    
+    // Link pre-built SPFresh libraries
+    println!("cargo:rustc-link-search=native={}", lib_path.display());
+    
+    // Try linking shared library first, fall back to static if needed
+    // SPFresh builds libSPTAGLib.so (shared) and potentially .a (static)
+    println!("cargo:rustc-link-lib=dylib=SPTAGLib");
+    
+    // DistanceUtils might not exist in all builds - try to link if available
+    // If the library doesn't exist, the linker will error (which helps us debug)
+    // For now, try dylib first, then static
+    if lib_path.join("libDistanceUtils.so").exists() {
+        println!("cargo:rustc-link-lib=dylib=DistanceUtils");
+    } else if lib_path.join("libDistanceUtils.a").exists() {
+        println!("cargo:rustc-link-lib=static=DistanceUtils");
+    } else {
+        println!("cargo:warning=DistanceUtils library not found - SPFresh might not need it or it's embedded in SPTAGLib");
+        // Don't link it - SPTAGLib might already include it
+    }
+    
+    // Link system libraries - order matters for some linkers
     println!("cargo:rustc-link-lib=dylib=stdc++");
-    println!("cargo:rustc-link-lib=dylib=pthread");
     println!("cargo:rustc-link-lib=dylib=gomp");     // OpenMP
+    println!("cargo:rustc-link-lib=dylib=pthread");
     
     // Compile our C++ wrapper
     cc::Build::new()
@@ -25,6 +57,7 @@ fn main() {
         .flag("-std=c++14")
         .flag("-O3")
         .flag("-fopenmp")
+        .cpp_link_stdlib("stdc++")  // Explicitly link C++ stdlib
         .warnings(false)
         .compile("spfresh_wrapper");
 }

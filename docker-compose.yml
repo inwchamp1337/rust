@@ -1,8 +1,19 @@
 version: '3.8'
 services:
-  vector-api:
-    build: .
+  spfresh-builder:
+    build:
+      context: ./spfresh-docker
+      dockerfile: Dockerfile
+    image: spfresh:local
+    # This service is only used to produce the SPFresh image/artifacts for the backend build; it doesn't need to run.
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
     image: vector-search-api:latest
+    depends_on:
+      - spfresh-builder
     ports:
       - "3000:3000"
     restart: unless-stopped
@@ -13,8 +24,9 @@ services:
     volumes:
       # Persist data (append-only metadata and index files)
       - ./data:/app/data
-      # If you prefer to mount the SPFresh Release folder from host instead of baking into the image
-      # - ./SPFresh/SPFresh/Release:/usr/local/lib/spfresh-release:ro
+      - ./target:/usr/src/app/target
+    tty: true
+    stdin_open: true
     deploy:
       resources:
         limits:

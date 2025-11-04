@@ -1,0 +1,99 @@
+# Multi-stage Dockerfile for production-ready Rust + SPFresh service
+# Build stage: compile the Rust binary (assumes Rust 1.91 toolchain compatibility)
+FROM rust:1.91-bullseye as builder
+
+WORKDIR /usr/src/app
+
+# Install system build deps for C/C++ parts (SPFresh wrapper) and pkg tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    g++ \
+    cmake \
+    pkg-config \
+    git \
+    ca-certificates \
+    curl \
+    libgomp1 \
+    libtbb-dev \
+    libnuma-dev \
+    zlib1g-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# --- START: Optimized Caching Strategy ---
+
+# 1. Copy only dependency manifests
+COPY Cargo.toml Cargo.lock ./
+
+# 2. Build a dummy project to cache dependencies
+# This compiles all crates from Cargo.lock but not our own source code yet.
+RUN mkdir src && \
+    echo "fn main() {println!(\"dummy build to cache deps\")}" > src/main.rs && \
+    cargo build --release && \
+    rm -rf src target/release/deps/vector_search_api*
+
+# 3. Now copy the actual source code
+COPY src ./src
+COPY build.rs ./build.rs
+
+# --- END: Optimized Caching Strategy ---
+
+# Copy SPFresh artifacts from the spfresh builder image so `build.rs` and the linker
+# can find the prebuilt SPFresh libraries during the Rust build.
+COPY --from=spfresh:local /SPFresh ./SPFresh/SPFresh
+
+# Build the actual project. This will be much faster as dependencies are cached.
+RUN cargo build --release -p vector-search-api
+
+
+### Runtime image
+FROM debian:bookworm-slim
+
+ENV RUST_BACKTRACE=1
+ENV RUST_LOG=info
+
+# Create a non-root user
+RUN useradd -m -u 1000 appuser
+
+# Install runtime libs required by SPFresh and the binary
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  ca-certificates \
+  curl \
+  libstdc++6 \
+  libgomp1 \
+  libtbbmalloc2 \
+  libnuma1 \
+  libzstd1 && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the compiled binary from the builder stage
+COPY --from=builder /usr/src/app/target/release/vector-search-api /usr/local/bin/vector-search-api
+
+# Copy configuration (if present) and companion files
+COPY --from=builder /usr/src/app/config.json ./config.json
+
+
+# Copy SPFresh shared libraries into the runtime image. SPFresh cmake builds to build/ directory.
+# We need to create the target dir first, then copy .so files from whichever location they exist.
+RUN mkdir -p /usr/local/lib/spfresh-release
+COPY --from=builder /usr/src/app/SPFresh/SPFresh/build /tmp/spfresh-build
+RUN find /tmp/spfresh-build -name '*.so*' -type f -exec cp {} /usr/local/lib/spfresh-release/ \; || true && \
+    rm -rf /tmp/spfresh-build
+
+# Ensure dynamic loader can see the SPFresh libs
+ENV LD_LIBRARY_PATH=/usr/local/lib/spfresh-release:$LD_LIBRARY_PATH
+
+# Create directories for data and logs and set permissions
+RUN mkdir -p /app/data && chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 3000
+
+# Healthcheck — uses curl to hit the local /health endpoint
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:3000/health || exit 1
+
+# Run the server; allow overriding via env (e.g., VECTOR_CONFIG_PATH)
+CMD ["/usr/local/bin/vector-search-api"]

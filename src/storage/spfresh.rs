@@ -1,8 +1,15 @@
 use anyhow::Result;
 use std::ffi::{CStr, CString};
+use std::fs::File;
 use std::os::raw::{c_char, c_float, c_int, c_void};
 use std::path::Path;
 use tracing::{info, warn};
+
+// Archive support for single-file index storage
+use flate2::Compression;
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
+use tar::{Archive, Builder};
 
 /// Search result from vector index
 #[derive(Debug, Clone)]
@@ -262,7 +269,7 @@ impl VectorIndex {
         }
     }
 
-    /// Save index to directory
+    /// Save index to a single tar.gz file
     pub fn save(&self, path: &Path) -> Result<()> {
         if self.index_ptr.is_null() {
             anyhow::bail!("Index not initialized");
@@ -270,26 +277,43 @@ impl VectorIndex {
 
         info!("Saving index to {:?}", path);
 
-        // Create directory if it doesn't exist
-        std::fs::create_dir_all(path)?;
+        // Create temp directory for SPFresh to save folder structure
+        let temp_dir = path.with_extension("tmp");
+        if temp_dir.exists() {
+            std::fs::remove_dir_all(&temp_dir)?;
+        }
+        std::fs::create_dir_all(&temp_dir)?;
 
+        // Save to temp folder (SPFresh native format)
         unsafe {
-            let path_str = path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
-            let path_cstr = CString::new(path_str)?;
+            let temp_str = temp_dir.to_str().ok_or_else(|| anyhow::anyhow!("Invalid temp path"))?;
+            let temp_cstr = CString::new(temp_str)?;
 
-            let ret = spfresh_save_index(self.index_ptr, path_cstr.as_ptr());
+            let ret = spfresh_save_index(self.index_ptr, temp_cstr.as_ptr());
 
             if ret != 0 {
-                anyhow::bail!("Failed to save index");
+                std::fs::remove_dir_all(&temp_dir)?;
+                anyhow::bail!("Failed to save index to temp folder");
             }
-
-            info!("✅ Index saved successfully");
         }
+
+        // Create tar.gz archive from temp folder
+        let archive_file = File::create(path)?;
+        let encoder = GzEncoder::new(archive_file, Compression::default());
+        let mut tar = Builder::new(encoder);
+        
+        tar.append_dir_all(".", &temp_dir)?;
+        tar.finish()?;
+
+        // Cleanup temp folder
+        std::fs::remove_dir_all(&temp_dir)?;
+
+        info!("✅ Index saved successfully to single file");
 
         Ok(())
     }
 
-    /// Load index from directory
+    /// Load index from a single tar.gz file
     pub fn load(&mut self, path: &Path) -> Result<()> {
         if !path.exists() {
             anyhow::bail!("Index path does not exist: {:?}", path);
@@ -297,14 +321,29 @@ impl VectorIndex {
 
         info!("Loading index from {:?}", path);
 
-        unsafe {
-            let path_str = path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid path"))?;
-            let path_cstr = CString::new(path_str)?;
+        // Create temp directory for extraction
+        let temp_dir = path.with_extension("tmp");
+        if temp_dir.exists() {
+            std::fs::remove_dir_all(&temp_dir)?;
+        }
+        std::fs::create_dir_all(&temp_dir)?;
 
-            let new_ptr = spfresh_load_index(path_cstr.as_ptr());
+        // Extract tar.gz archive to temp folder
+        let archive_file = File::open(path)?;
+        let decoder = GzDecoder::new(archive_file);
+        let mut tar = Archive::new(decoder);
+        tar.unpack(&temp_dir)?;
+
+        // Load from temp folder (SPFresh native format)
+        unsafe {
+            let temp_str = temp_dir.to_str().ok_or_else(|| anyhow::anyhow!("Invalid temp path"))?;
+            let temp_cstr = CString::new(temp_str)?;
+
+            let new_ptr = spfresh_load_index(temp_cstr.as_ptr());
 
             if new_ptr.is_null() {
-                anyhow::bail!("Failed to load index");
+                std::fs::remove_dir_all(&temp_dir)?;
+                anyhow::bail!("Failed to load index from temp folder");
             }
 
             // Destroy old index if exists
@@ -332,9 +371,12 @@ impl VectorIndex {
             info!(
                 num_vectors = self.vector_count,
                 dimension = self.vector_dim,
-                "✅ Index loaded successfully"
+                "✅ Index loaded successfully from single file"
             );
         }
+
+        // Cleanup temp folder
+        std::fs::remove_dir_all(&temp_dir)?;
 
         Ok(())
     }

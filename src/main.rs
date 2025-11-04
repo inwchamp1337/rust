@@ -69,11 +69,12 @@ async fn main() -> anyhow::Result<()> {
     }
     
     let vector_index = Arc::new(RwLock::new(vector_index));
+    let index_path = config.storage.index_path.clone(); // Clone for shutdown handler
     info!("✅ Vector index ready");
 
     // Create application state
     let state = AppState {
-        vector_index,
+        vector_index: vector_index.clone(),
         metadata_store,
         embedding_service,
     };
@@ -92,7 +93,8 @@ async fn main() -> anyhow::Result<()> {
         .layer(TraceLayer::new_for_http());
 
     // Start server
-    let addr = format!("{}:{}", config.server.host, config.server.port);
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8000".to_string());
+    let addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     
     info!("🌐 Server listening on http://{}", addr);
@@ -107,6 +109,14 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+
+    // Save index on graceful shutdown
+    info!("💾 Saving vector index before shutdown...");
+    if let Ok(index) = vector_index.read().await.save(&index_path) {
+        info!("✅ Index saved successfully");
+    } else {
+        info!("⚠️  Failed to save index");
+    }
 
     info!("👋 Server shutting down gracefully");
     

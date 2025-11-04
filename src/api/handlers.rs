@@ -66,12 +66,19 @@ pub async fn add_review_handler(
     );
 
     // Add vector to index
-    let vector_id = state
-        .vector_index
-        .write()
-        .await
-        .add_vector(&embedding)
-        .map_err(|e| AppError::Internal(format!("Failed to add vector to index: {}", e)))?;
+    let vector_id = {
+        let mut index = state.vector_index.write().await;
+        let id = index
+            .add_vector(&embedding)
+            .map_err(|e| AppError::Internal(format!("Failed to add vector to index: {}", e)))?;
+        
+        // Save index after adding vector (append-only)
+        index
+            .save(&std::path::Path::new("data/reviews.index"))
+            .map_err(|e| AppError::Internal(format!("Failed to save index: {}", e)))?;
+        
+        id
+    };
 
     // Store metadata
     let metadata = ReviewMetadata {
@@ -97,7 +104,7 @@ pub async fn add_review_handler(
 
     info!(
         vector_id = vector_id,
-        "Successfully added review"
+        "Successfully added review and saved index"
     );
 
     Ok(Json(AddReviewResponse {

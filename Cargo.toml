@@ -31,5 +31,9 @@ thiserror = "1.0"
 # File I/O
 memmap2 = "0.9"
 
+# Archive support for single-file index storage
+tar = "0.4"
+flate2 = "1.0"
+
 [build-dependencies]
 cc = "1.0"

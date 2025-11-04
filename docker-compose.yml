@@ -15,7 +15,7 @@ services:
     depends_on:
       - spfresh-builder
     ports:
-      - "3000:3000"
+      - "8000:8000"
     restart: unless-stopped
     environment:
       - RUST_LOG=info

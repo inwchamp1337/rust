@@ -27,25 +27,25 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", lib_path.display());
     
     // Try linking shared library first, fall back to static if needed
-    // SPFresh builds libSPTAGLib.so (shared) and potentially .a (static)
     println!("cargo:rustc-link-lib=dylib=SPTAGLib");
     
     // DistanceUtils might not exist in all builds - try to link if available
-    // If the library doesn't exist, the linker will error (which helps us debug)
-    // For now, try dylib first, then static
     if lib_path.join("libDistanceUtils.so").exists() {
         println!("cargo:rustc-link-lib=dylib=DistanceUtils");
     } else if lib_path.join("libDistanceUtils.a").exists() {
         println!("cargo:rustc-link-lib=static=DistanceUtils");
     } else {
         println!("cargo:warning=DistanceUtils library not found - SPFresh might not need it or it's embedded in SPTAGLib");
-        // Don't link it - SPTAGLib might already include it
     }
     
     // Link system libraries - order matters for some linkers
+    // Link stdc++ dynamically
     println!("cargo:rustc-link-lib=dylib=stdc++");
+    println!("cargo:rustc-link-lib=dylib=gcc_s");    // GCC runtime support (for exceptions, etc.)
     println!("cargo:rustc-link-lib=dylib=gomp");     // OpenMP
     println!("cargo:rustc-link-lib=dylib=pthread");
+    println!("cargo:rustc-link-lib=dylib=m");        // Math library
+    println!("cargo:rustc-link-lib=dylib=dl");       // Dynamic loading
     
     // Compile our C++ wrapper
     cc::Build::new()

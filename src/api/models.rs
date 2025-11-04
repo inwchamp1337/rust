@@ -1,4 +1,21 @@
+use crate::embedding::EmbeddingService;
+use crate::storage::{JsonlStorage, VectorIndex};
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+/// Application state
+#[derive(Clone)]
+pub struct AppState {
+    pub vector_index: Arc<RwLock<VectorIndex>>,
+    pub metadata_store: Arc<JsonlStorage>,
+    pub embedding_service: Arc<EmbeddingService>,
+}
 
 /// Request to add a new review
 #[derive(Debug, Deserialize)]
@@ -93,5 +110,27 @@ impl SearchRequest {
             return Err("top_k must be between 1 and 100".to_string());
         }
         Ok(())
+    }
+}
+
+/// Application error type
+#[derive(Debug)]
+pub enum AppError {
+    BadRequest(String),
+    Internal(String),
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        let (status, message) = match self {
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
+            AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
+        };
+
+        (status, Json(ErrorResponse {
+            error: status.to_string(),
+            message,
+        }))
+        .into_response()
     }
 }

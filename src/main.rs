@@ -3,12 +3,12 @@ mod config;
 mod embedding;
 mod storage;
 
-use crate::api::{add_review_handler, health_handler, search_handler, AppState};
+use crate::api::{health_handler, AppState};
 use crate::config::AppConfig;
 use crate::embedding::EmbeddingService;
 use crate::storage::{JsonlStorage, VectorIndex};
 use axum::{
-    routing::{get, post},
+    routing::get,
     Router,
 };
 use std::sync::Arc;
@@ -79,16 +79,11 @@ async fn main() -> anyhow::Result<()> {
         embedding_service,
     };
 
-    // Build router
+    // Build router with modular routes
     let app = Router::new()
-        // Health check
         .route("/health", get(health_handler))
-        
-        // Review endpoints
-        .route("/reviews/add", post(add_review_handler))
-        .route("/reviews/search", post(search_handler))
-        
-        // Add state and middleware
+        .merge(api::review::routes())
+        .merge(api::search::routes())
         .with_state(state)
         .layer(TraceLayer::new_for_http());
 
@@ -112,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Save index on graceful shutdown
     info!("💾 Saving vector index before shutdown...");
-    if let Ok(index) = vector_index.read().await.save(&index_path) {
+    if vector_index.read().await.save(&index_path).is_ok() {
         info!("✅ Index saved successfully");
     } else {
         info!("⚠️  Failed to save index");

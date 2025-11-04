@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 use std::fs::File;
 use std::os::raw::{c_char, c_float, c_int, c_void};
 use std::path::Path;

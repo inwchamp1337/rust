@@ -39,7 +39,7 @@ pub struct AddReviewResponse {
 pub struct SearchRequest {
     pub query: String,
     
-    #[serde(default = "default_top_k")]
+    #[serde(alias = "k", default = "default_top_k")]
     pub top_k: usize,
 }
 

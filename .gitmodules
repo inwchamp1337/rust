@@ -1,0 +1,3 @@
+[submodule "spfresh-docker"]
+	path = spfresh-docker
+	url = https://github.com/inwchamp1337/spfresh-docker.git

@@ -2,3 +2,5 @@
 .fastlemma_cache/
 *.log
 .DS_Store
+# ignore embedded backup of inner repo
+spfresh-docker/.git_backup/
